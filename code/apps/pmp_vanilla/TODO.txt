@@ -1,0 +1,4 @@
+Put in steps needed to fiddle with sfslite to get this to run.
+
+using namespace sfs; (in util.h)
+replace xmalloc in header files (where necessary)

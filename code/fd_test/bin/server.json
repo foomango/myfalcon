@@ -1,0 +1,24 @@
+{ 
+    "fd_name": "falcon", 
+    "timeout": 30000000, 
+    "ping_interval": 15000000, 
+    "output_file": test_out.out, 
+    "port": 9483, 
+    "app_id": "dummy", 
+    "append": true, 
+    "fixed_rate": false, 
+    "skip_stablization": true, 
+    "failure": "no_error", 
+    "properties": { 
+    }, 
+    "search": true, 
+    "ping_times": 10, 
+    "config_file": "/tmp/fdparameter.cfg", 
+    "tcp": true, 
+    "address": "dvafd", 
+    "host_name": "dvafd", 
+    "vmm_name": "dva", 
+    "fail_port": 12345, 
+    "handlerd_port": 22222 
+}
+

@@ -1,0 +1,114 @@
+# Copyright (c) 2011 Joshua B. Leners (University of Texas at Austin).
+# All rights reserved.
+# Redistribution and use in source and binary forms are permitted
+# provided that the above copyright notice and this paragraph are
+# duplicated in all such forms and that any documentation,
+# advertising materials, and other materials related to such
+# distribution and use acknowledge that the software was developed
+# by the University of Texas at Austin. The name of the
+# University may not be used to endorse or promote products derived
+# from this software without specific prior written permission.
+# THIS SOFTWARE IS PROVIDED ``AS IS'' AND WITHOUT ANY EXPRESS OR
+# IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. 
+
+#! /bin/bash
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib
+EXPECTED_ARGS=1
+
+if [ $# -ne $EXPECTED_ARGS ]
+then
+	echo "Usage: `basename $0` vmname"
+	exit 1
+fi
+
+if [ "$(id -u)" -ne "0" ]
+then
+	echo Must be run as root
+	exit 1
+fi
+
+if [ -e "/usr/local/images/$1.qcow2" ]
+then
+	echo Image with name $1 already exists
+# When the image already exists, we simply exit gracefully
+	exit 0
+fi
+ifname=`echo $1 | cut -c1-7`
+if [ -e "/etc/init.d/net.$ifname" ]
+then
+	echo Interface with name $ifname already exists
+	exit 1
+fi
+host_ip=`ifconfig br0 | grep "inet addr" | gawk -F":" '{print $2}' | gawk '{print $1}'`
+# get an ip for the hostname
+# Acquire the hosts file lock
+E=`(su ntfa -c "ssh root@router /jffs/lock" && echo success) || echo failure`
+while [ $E != "success" ]; do
+    sleep 5
+    E=`(su ntfa -c "ssh root@router /jffs/lock" && echo success) || echo failure`
+done
+su ntfa -c "scp root@router:/jffs/hosts /tmp/"
+E=`(grep -q "$1 " /tmp/hosts && echo found) || echo not_found`
+if [ $E != "not_found" ]
+then
+    echo $1 is already defined on the router
+    su ntfa -c "ssh root@router rm -f /tmp/lock_file"
+    exit 1
+fi
+LAST=1
+E=`(grep -q "192.168.1.$LAST" /tmp/hosts && echo found) || echo not_found`
+while [ $E != "not_found" ]; do
+    LAST=$((LAST+1))
+    E=`(grep -q "192.168.1.$LAST" /tmp/hosts && echo found) || echo not_found`
+done
+ip_addr="192.168.1.$LAST"
+echo $ip_addr $1 >> /tmp/hosts
+su ntfa -c "scp /tmp/hosts root@router:/jffs/hosts"
+su ntfa -c "ssh root@router /jffs/update_hosts.sh"
+su ntfa -c "ssh root@router rm -f /tmp/lock_file"
+# create the image
+qemu-img create -f qcow2 -o backing_file=/usr/local/images/ntfa.img /usr/local/images/$1.qcow2
+# set it up
+qemu-nbd --connect=/dev/nbd5 /usr/local/images/$1.qcow2
+sleep 5
+mount /dev/nbd5p1 /mnt/tmp_image
+# First networking
+echo "config_eth0=( \"null\" )" > /mnt/tmp_image/etc/conf.d/net
+echo "config_eth1=( \"$ip_addr/24\" )" >> /mnt/tmp_image/etc/conf.d/net
+echo "routes_eth1=( \"default via $host_ip\" )" >> /mnt/tmp_image/etc/conf.d/net
+echo "dns_servers_eth1=( \"192.168.1.1\" )" >> /mnt/tmp_image/etc/conf.d/net
+# Clean up a mess...
+sed -i '/eth1/d' /mnt/tmp_image/etc/udev/rules.d/*
+# Then hostname
+echo "HOSTNAME=\"$1\"" > /mnt/tmp_image/etc/conf.d/hostname
+# Get the ntfa_probe_addr
+ntfa_count_addr=`sudo gawk '/ ntfa_count/{print $1}' /mnt/tmp_image/boot/System.map*`
+# Clean up
+umount /mnt/tmp_image
+qemu-nbd --disconnect /dev/nbd5
+# create the interface
+tunctl -g kvm -t $ifname
+# set it up
+sed -i 's/bridge_br0=\"eth0/& '$ifname'/' /etc/conf.d/net
+echo >> /etc/conf.d/net
+echo "config_$ifname=( \"null\" ) # $1" >> /etc/conf.d/net
+echo "tuntap_$ifname=\"tap\" # $1" >> /etc/conf.d/net
+echo "tunctl_$ifname=\"-g kvm\" # $1" >> /etc/conf.d/net
+ln -s /etc/init.d/net.lo /etc/init.d/net.$ifname
+rc-update add net.$ifname default
+/etc/init.d/net.$ifname start
+brctl addif br0 $ifname
+# create the domxml
+uuid=`uuidgen`
+mac_addr=00:16:3e:
+mac_addr=$mac_addr`openssl rand -hex 3 | sed 's/\(..\)/\1:/g; s/.$//'`
+
+sed 's/__name__/'$1'/; s/__uuid__/'$uuid'/; s/__addr__/'$ntfa_count_addr'/; s/__ifname__/'$ifname'/; s/__mac__/'$mac_addr'/' /usr/local/images/template.xml > /tmp/$1.xml
+# add it to libvirt
+virsh define /tmp/$1.xml
+echo "You can ignore the next error..."
+# initialize generations
+virsh destroy $1
+cp /usr/local/images/$1.qcow2 /usr/local/images/$1.qcow2.bak
+true

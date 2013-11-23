@@ -1,0 +1,7 @@
+{
+    "address": "razfd",
+    "port": 15423,
+    "timeout": 2000,
+    "tcp": true,
+    "saboteur_port": 12345
+}

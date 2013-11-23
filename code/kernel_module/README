@@ -1,0 +1,2 @@
+put the .h file into include/linux
+And add the appropriate variable to init/main.c

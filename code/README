@@ -1,0 +1,5 @@
+falcon contains falcon source code
+old contains old falcon source code
+apps contains falcon enabled apps and some libraries
+kernel_modules contains the handlerd's associated kernel module
+third_party contains some useful third party stuff (libbridge, and pre-compiled brcm libasync)
